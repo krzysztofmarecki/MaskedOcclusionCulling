@@ -4,6 +4,9 @@ This code accompanies the research paper ["Masked Software Occlusion Culling"](h
 and implements an efficient alternative to the hierarchical depth buffer algorithm. Our algorithm decouples depth values and coverage, and operates directly
 on the hierarchical depth buffer. It lets us efficiently parallelize both coverage computations and hierarchical depth buffer updates.
 
+## Update November 2025
+Added support for orthographic projection for RenderTriangles and TestRect, both use normalized depth. Only StaticLib compiles.
+
 ## Update May 2018
 
 Added the ability to merge 2 depth buffers, this allows both an alterative method for parallelizing buffer creation and a way to reduce silhouette bleed when input data cannot be roughly sorted from front to back, for example rendering large terrain patches with foreground occluders in an open world game engine.

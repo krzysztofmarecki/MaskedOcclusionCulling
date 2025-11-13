@@ -387,17 +387,28 @@ public:
 	// Polygon clipping functions
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+	template<int ORTHOGRAPHIC>
 	FORCE_INLINE int ClipPolygon(__m128 *outVtx, __m128 *inVtx, const __m128 &plane, int n) const
 	{
 		__m128 p0 = inVtx[n - 1];
-		__m128 dist0 = _mmx_dp4_ps(p0, plane);
+		__m128 p0ForDist;
+		if constexpr (ORTHOGRAPHIC)
+			p0ForDist = _mm_set_ps(p0.m128_f32[3], 1, p0.m128_f32[1], p0.m128_f32[0]);
+		else
+			p0ForDist = p0;
+		__m128 dist0 = _mmx_dp4_ps(p0ForDist, plane);
 
 		// Loop over all polygon edges and compute intersection with clip plane (if any)
 		int nout = 0;
 		for (int k = 0; k < n; k++)
 		{
 			__m128 p1 = inVtx[k];
-			__m128 dist1 = _mmx_dp4_ps(p1, plane);
+			__m128 p1ForDist;
+			if constexpr (ORTHOGRAPHIC)
+				p1ForDist = _mm_set_ps(p1.m128_f32[3], 1, p1.m128_f32[1], p1.m128_f32[0]);
+			else
+				p1ForDist = p1;
+			__m128 dist1 = _mmx_dp4_ps(p1ForDist, plane);
 			int dist0Neg = _mm_movemask_ps(dist0);
 			if (!dist0Neg)	// dist0 > 0.0f
 				outVtx[nout++] = p0;
@@ -424,7 +435,7 @@ public:
 		return nout;
 	}
 
-	template<ClipPlanes CLIP_PLANE> void TestClipPlane(__mw *vtxX, __mw *vtxY, __mw *vtxW, unsigned int &straddleMask, unsigned int &triMask, ClipPlanes clipPlaneMask)
+	template<ClipPlanes CLIP_PLANE, int ORTHOGRAPHIC> void TestClipPlane(__mw *vtxX, __mw *vtxY, __mw *vtxW, unsigned int &straddleMask, unsigned int &triMask, ClipPlanes clipPlaneMask)
 	{
 		straddleMask = 0;
 		// Skip masked clip planes
@@ -435,12 +446,18 @@ public:
 		__mw planeDp[3];
 		for (int i = 0; i < 3; ++i)
 		{
+			__mw limit;
+			if constexpr (ORTHOGRAPHIC)
+				limit = _mmw_set1_ps(1);
+			else
+				limit = vtxW[i];
+
 			switch (CLIP_PLANE)
 			{
-			case ClipPlanes::CLIP_PLANE_LEFT:   planeDp[i] = _mmw_add_ps(vtxW[i], vtxX[i]); break;
-			case ClipPlanes::CLIP_PLANE_RIGHT:  planeDp[i] = _mmw_sub_ps(vtxW[i], vtxX[i]); break;
-			case ClipPlanes::CLIP_PLANE_BOTTOM: planeDp[i] = _mmw_add_ps(vtxW[i], vtxY[i]); break;
-			case ClipPlanes::CLIP_PLANE_TOP:    planeDp[i] = _mmw_sub_ps(vtxW[i], vtxY[i]); break;
+			case ClipPlanes::CLIP_PLANE_LEFT:   planeDp[i] = _mmw_add_ps(limit, vtxX[i]); break;
+			case ClipPlanes::CLIP_PLANE_RIGHT:  planeDp[i] = _mmw_sub_ps(limit, vtxX[i]); break;
+			case ClipPlanes::CLIP_PLANE_BOTTOM: planeDp[i] = _mmw_add_ps(limit, vtxY[i]); break;
+			case ClipPlanes::CLIP_PLANE_TOP:    planeDp[i] = _mmw_sub_ps(limit, vtxY[i]); break;
 			case ClipPlanes::CLIP_PLANE_NEAR:   planeDp[i] = _mmw_sub_ps(vtxW[i], _mmw_set1_ps(mNearDist)); break;
 			}
 		}
@@ -454,6 +471,7 @@ public:
 		triMask &= ~outMask;
 	}
 
+	template<int ORTHOGRAPHIC>
 	FORCE_INLINE void ClipTriangleAndAddToBuffer(__mw *vtxX, __mw *vtxY, __mw *vtxW, __m128 *clippedTrisBuffer, int &clipWriteIdx, unsigned int &triMask, unsigned int triClipMask, ClipPlanes clipPlaneMask)
 	{
 		if (!triClipMask)
@@ -461,11 +479,11 @@ public:
 
 		// Inside test all 3 triangle vertices against all active frustum planes
 		unsigned int straddleMask[5];
-		TestClipPlane<ClipPlanes::CLIP_PLANE_NEAR>(vtxX, vtxY, vtxW, straddleMask[0], triMask, clipPlaneMask);
-		TestClipPlane<ClipPlanes::CLIP_PLANE_LEFT>(vtxX, vtxY, vtxW, straddleMask[1], triMask, clipPlaneMask);
-		TestClipPlane<ClipPlanes::CLIP_PLANE_RIGHT>(vtxX, vtxY, vtxW, straddleMask[2], triMask, clipPlaneMask);
-		TestClipPlane<ClipPlanes::CLIP_PLANE_BOTTOM>(vtxX, vtxY, vtxW, straddleMask[3], triMask, clipPlaneMask);
-		TestClipPlane<ClipPlanes::CLIP_PLANE_TOP>(vtxX, vtxY, vtxW, straddleMask[4], triMask, clipPlaneMask);
+		TestClipPlane<ClipPlanes::CLIP_PLANE_NEAR,   ORTHOGRAPHIC>(vtxX, vtxY, vtxW, straddleMask[0], triMask, clipPlaneMask);
+		TestClipPlane<ClipPlanes::CLIP_PLANE_LEFT,   ORTHOGRAPHIC>(vtxX, vtxY, vtxW, straddleMask[1], triMask, clipPlaneMask);
+		TestClipPlane<ClipPlanes::CLIP_PLANE_RIGHT,  ORTHOGRAPHIC>(vtxX, vtxY, vtxW, straddleMask[2], triMask, clipPlaneMask);
+		TestClipPlane<ClipPlanes::CLIP_PLANE_BOTTOM, ORTHOGRAPHIC>(vtxX, vtxY, vtxW, straddleMask[3], triMask, clipPlaneMask);
+		TestClipPlane<ClipPlanes::CLIP_PLANE_TOP,    ORTHOGRAPHIC>(vtxX, vtxY, vtxW, straddleMask[4], triMask, clipPlaneMask);
 
         // Clip triangle against straddling planes and add to the clipped triangle buffer
 		__m128 vtxBuf[2][8];
@@ -493,7 +511,7 @@ public:
 			{
 				if ((straddleMask[i] & triBit) && (clipPlaneMask & (1 << i))) // <- second part maybe not needed?
 				{
-					nClippedVerts = ClipPolygon(vtxBuf[bufIdx ^ 1], vtxBuf[bufIdx], mCSFrustumPlanes[i], nClippedVerts);
+					nClippedVerts = ClipPolygon<ORTHOGRAPHIC>(vtxBuf[bufIdx ^ 1], vtxBuf[bufIdx], mCSFrustumPlanes[i], nClippedVerts);
 					bufIdx ^= 1;
 				}
 			}
@@ -568,6 +586,7 @@ public:
 	// Vertex transform & projection
 	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+	template<int ORTHOGRAPHIC>
 	FORCE_INLINE void TransformVerts(__mw *vtxX, __mw *vtxY, __mw *vtxW, const float *modelToClipMatrix)
 	{
 		if (modelToClipMatrix != nullptr)
@@ -577,13 +596,17 @@ public:
 				__mw tmpX, tmpY, tmpW;
 				tmpX = _mmw_fmadd_ps(vtxX[i], _mmw_set1_ps(modelToClipMatrix[0]), _mmw_fmadd_ps(vtxY[i], _mmw_set1_ps(modelToClipMatrix[4]), _mmw_fmadd_ps(vtxW[i], _mmw_set1_ps(modelToClipMatrix[8]), _mmw_set1_ps(modelToClipMatrix[12]))));
 				tmpY = _mmw_fmadd_ps(vtxX[i], _mmw_set1_ps(modelToClipMatrix[1]), _mmw_fmadd_ps(vtxY[i], _mmw_set1_ps(modelToClipMatrix[5]), _mmw_fmadd_ps(vtxW[i], _mmw_set1_ps(modelToClipMatrix[9]), _mmw_set1_ps(modelToClipMatrix[13]))));
-				tmpW = _mmw_fmadd_ps(vtxX[i], _mmw_set1_ps(modelToClipMatrix[3]), _mmw_fmadd_ps(vtxY[i], _mmw_set1_ps(modelToClipMatrix[7]), _mmw_fmadd_ps(vtxW[i], _mmw_set1_ps(modelToClipMatrix[11]), _mmw_set1_ps(modelToClipMatrix[15]))));
+				if constexpr(ORTHOGRAPHIC)
+					tmpW = _mmw_fmadd_ps(vtxX[i], _mmw_set1_ps(modelToClipMatrix[2]), _mmw_fmadd_ps(vtxY[i], _mmw_set1_ps(modelToClipMatrix[6]), _mmw_fmadd_ps(vtxW[i], _mmw_set1_ps(modelToClipMatrix[10]), _mmw_set1_ps(modelToClipMatrix[14])))); // for ortho, vtxW is actually vtxZ
+				else
+					tmpW = _mmw_fmadd_ps(vtxX[i], _mmw_set1_ps(modelToClipMatrix[3]), _mmw_fmadd_ps(vtxY[i], _mmw_set1_ps(modelToClipMatrix[7]), _mmw_fmadd_ps(vtxW[i], _mmw_set1_ps(modelToClipMatrix[11]), _mmw_set1_ps(modelToClipMatrix[15]))));
 				vtxX[i] = tmpX;	vtxY[i] = tmpY;	vtxW[i] = tmpW;
 			}
 		}
 	}
 
 #if PRECISE_COVERAGE != 0
+	template<int ORTHOGRAPHIC>
 	FORCE_INLINE void ProjectVertices(__mwi *ipVtxX, __mwi *ipVtxY, __mw *pVtxX, __mw *pVtxY, __mw *pVtxZ, const __mw *vtxX, const __mw *vtxY, const __mw *vtxW)
 	{
 #if USE_D3D != 0
@@ -596,14 +619,22 @@ public:
 		for (int i = 0; i < 3; i++)
 		{
 			int idx = vertexOrder[i];
-			__mw rcpW = _mmw_div_ps(_mmw_set1_ps(1.0f), vtxW[i]);
+			__mw rcpW;
+			if constexpr (ORTHOGRAPHIC)
+				rcpW = _mmw_set1_ps(1.0f);
+			else
+				rcpW = _mmw_div_ps(_mmw_set1_ps(1.0f), vtxW[i]);
+
 			__mw screenX = _mmw_fmadd_ps(_mmw_mul_ps(vtxX[i], mHalfWidth), rcpW, mCenterX);
 			__mw screenY = _mmw_fmadd_ps(_mmw_mul_ps(vtxY[i], mHalfHeight), rcpW, mCenterY);
 			ipVtxX[idx] = _mmw_cvtps_epi32(_mmw_mul_ps(screenX, _mmw_set1_ps(float(1 << FP_BITS))));
 			ipVtxY[idx] = _mmw_cvtps_epi32(_mmw_mul_ps(screenY, _mmw_set1_ps(float(1 << FP_BITS))));
 			pVtxX[idx] = _mmw_mul_ps(_mmw_cvtepi32_ps(ipVtxX[idx]), _mmw_set1_ps(FP_INV));
 			pVtxY[idx] = _mmw_mul_ps(_mmw_cvtepi32_ps(ipVtxY[idx]), _mmw_set1_ps(FP_INV));
-			pVtxZ[idx] = rcpW;
+			if constexpr (ORTHOGRAPHIC)
+				pVtxZ[idx] = vtxW[i]; // for ortho, vtxW is actually vtxZ
+			else
+				pVtxZ[idx] = rcpW;
 		}
 	}
 #else
@@ -1501,7 +1532,7 @@ public:
 		return cullResult;
 	}
 
-	template<int TEST_Z, int FAST_GATHER>
+	template<int TEST_Z, int FAST_GATHER, int ORTHOGRAPHIC>
 	FORCE_INLINE CullingResult RenderTriangles(const float *inVtx, const unsigned int *inTris, int nTris, const float *modelToClipMatrix, BackfaceWinding bfWinding, ClipPlanes clipPlaneMask, const VertexLayout &vtxLayout)
 	{
 		assert(mMaskedHiZBuffer != nullptr);
@@ -1529,7 +1560,7 @@ public:
             __mw vtxX[3], vtxY[3], vtxW[3];
             unsigned int triMask = SIMD_ALL_LANES_MASK;
 
-            GatherTransformClip<FAST_GATHER>( clipHead, clipTail, numLanes, nTris, triIndex, vtxX, vtxY, vtxW, inVtx, inTrisPtr, vtxLayout, modelToClipMatrix, clipTriBuffer, triMask, clipPlaneMask );
+            GatherTransformClip<FAST_GATHER, ORTHOGRAPHIC>( clipHead, clipTail, numLanes, nTris, triIndex, vtxX, vtxY, vtxW, inVtx, inTrisPtr, vtxLayout, modelToClipMatrix, clipTriBuffer, triMask, clipPlaneMask );
 
 			if (triMask == 0x0)
 				continue;
@@ -1545,9 +1576,9 @@ public:
 
 #if PRECISE_COVERAGE != 0
 			__mwi ipVtxX[3], ipVtxY[3];
-			ProjectVertices(ipVtxX, ipVtxY, pVtxX, pVtxY, pVtxZ, vtxX, vtxY, vtxW);
+			ProjectVertices<ORTHOGRAPHIC>(ipVtxX, ipVtxY, pVtxX, pVtxY, pVtxZ, vtxX, vtxY, vtxW);
 #else
-			ProjectVertices(pVtxX, pVtxY, pVtxZ, vtxX, vtxY, vtxW);
+			ProjectVertices<ORTHOGRAPHIC>(pVtxX, pVtxY, pVtxZ, vtxX, vtxY, vtxW);
 #endif
 
 			// Perform backface test. 
@@ -1588,14 +1619,22 @@ public:
 		return (CullingResult)cullResult;
 	}
 
-	CullingResult RenderTriangles(const float *inVtx, const unsigned int *inTris, int nTris, const float *modelToClipMatrix, BackfaceWinding bfWinding, ClipPlanes clipPlaneMask, const VertexLayout &vtxLayout) override
+	CullingResult RenderTriangles(const float *inVtx, const unsigned int *inTris, int nTris, const float *modelToClipMatrix, BackfaceWinding bfWinding, ClipPlanes clipPlaneMask, const VertexLayout &vtxLayout, const bool orthographic) override
 	{
         CullingResult retVal;
 
-        if (vtxLayout.mStride == 16 && vtxLayout.mOffsetY == 4 && vtxLayout.mOffsetW == 12)
-			retVal = (CullingResult)RenderTriangles<0, 1>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
-        else
-            retVal = (CullingResult)RenderTriangles<0, 0>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
+		if (vtxLayout.mStride == 16 && vtxLayout.mOffsetY == 4 && vtxLayout.mOffsetW == 12) {
+			if (orthographic)
+				retVal = (CullingResult)RenderTriangles<0, 1, 1>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
+			else
+				retVal = (CullingResult)RenderTriangles<0, 1, 0>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
+		} else {
+			if (orthographic)
+				retVal = (CullingResult)RenderTriangles<0, 0, 1>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
+			else
+				retVal = (CullingResult)RenderTriangles<0, 0, 0>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
+		}
+            
 
 #if MOC_RECORDER_ENABLE
         RecordRenderTriangles( inVtx, inTris, nTris, modelToClipMatrix, clipPlaneMask, bfWinding, vtxLayout, retVal );
@@ -1612,9 +1651,9 @@ public:
         CullingResult retVal;
 
         if (vtxLayout.mStride == 16 && vtxLayout.mOffsetY == 4 && vtxLayout.mOffsetW == 12)
-			retVal = (CullingResult)RenderTriangles<1, 1>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
+			retVal = (CullingResult)RenderTriangles<1, 1, 0>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout); // kmarecki: intentionally not implementing orthographic as I don't need it
         else
-		    retVal = (CullingResult)RenderTriangles<1, 0>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
+		    retVal = (CullingResult)RenderTriangles<1, 0, 0>(inVtx, inTris, nTris, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout); // kmarecki: intentionally not implementing orthographic as I don't need it
 
 #if MOC_RECORDER_ENABLE
         {
@@ -1625,7 +1664,7 @@ public:
         return retVal;
 	}
     
-    CullingResult TestRect( float xmin, float ymin, float xmax, float ymax, float wmin ) const override
+    CullingResult TestRect( float xmin, float ymin, float xmax, float ymax, float wmin, const bool orthographic ) const override
 	{
 		STATS_ADD(mStats.mOccludees.mNumProcessedRectangles, 1);
 		assert(mMaskedHiZBuffer != nullptr);
@@ -1683,7 +1722,12 @@ public:
 		// Compute z from w. Note that z is reversed order, 0 = far, 1 = near, which
 		// means we use a greater than test, so zMax is used to test for visibility.
 		//////////////////////////////////////////////////////////////////////////////
-		__mw zMax = _mmw_div_ps(_mmw_set1_ps(1.0f), _mmw_set1_ps(wmin));
+
+		__mw zMax;
+		if (orthographic)
+			zMax = _mmw_set1_ps(wmin);
+		else
+			zMax = _mmw_div_ps(_mmw_set1_ps(1.0f), _mmw_set1_ps(wmin));
 
 		for (;;)
 		{
@@ -1768,7 +1812,7 @@ public:
             unsigned int triMask = SIMD_ALL_LANES_MASK;
             __mw vtxX[3], vtxY[3], vtxW[3];
 
-            GatherTransformClip<FAST_GATHER>( clipHead, clipTail, numLanes, nTris, triIndex, vtxX, vtxY, vtxW, inVtx, inTrisPtr, vtxLayout, modelToClipMatrix, clipTriBuffer, triMask, clipPlaneMask );
+            GatherTransformClip<FAST_GATHER, 0>( clipHead, clipTail, numLanes, nTris, triIndex, vtxX, vtxY, vtxW, inVtx, inTrisPtr, vtxLayout, modelToClipMatrix, clipTriBuffer, triMask, clipPlaneMask ); // kmarecki: intentionally not implementing orthographic as I don't need it
 
 			if (triMask == 0x0)
 				continue;
@@ -1784,9 +1828,9 @@ public:
 
 #if PRECISE_COVERAGE != 0
 			__mwi ipVtxX[3], ipVtxY[3];
-			ProjectVertices(ipVtxX, ipVtxY, pVtxX, pVtxY, pVtxZ, vtxX, vtxY, vtxW);
+			ProjectVertices<0>(ipVtxX, ipVtxY, pVtxX, pVtxY, pVtxZ, vtxX, vtxY, vtxW);
 #else
-			ProjectVertices(pVtxX, pVtxY, pVtxZ, vtxX, vtxY, vtxW);
+			ProjectVertices<0>(pVtxX, pVtxY, pVtxZ, vtxX, vtxY, vtxW);
 #endif
 
 			// Perform backface test. 
@@ -1861,7 +1905,7 @@ public:
 			BinTriangles<false>(inVtx, inTris, nTris, triLists, nBinsW, nBinsH, modelToClipMatrix, bfWinding, clipPlaneMask, vtxLayout);
 	}
 
-    template<int FAST_GATHER>
+    template<int FAST_GATHER, int ORTHOGRAPHIC>
     void GatherTransformClip( int & clipHead, int & clipTail, int & numLanes, int nTris, int & triIndex, __mw * vtxX, __mw * vtxY, __mw * vtxW, const float * inVtx, const unsigned int * &inTrisPtr, const VertexLayout & vtxLayout, const float * modelToClipMatrix, __m128 * clipTriBuffer, unsigned int &triMask, ClipPlanes clipPlaneMask )
     {
         //////////////////////////////////////////////////////////////////////////////
@@ -1891,7 +1935,7 @@ public:
                 else
                     GatherVertices( vtxX, vtxY, vtxW, inVtx, inTrisPtr, numLanes, vtxLayout );
 
-                TransformVerts( vtxX, vtxY, vtxW, modelToClipMatrix );
+                TransformVerts<ORTHOGRAPHIC>( vtxX, vtxY, vtxW, modelToClipMatrix );
             }
 
             for( int clipTri = numLanes; clipTri < numLanes + clippedTris; clipTri++ )
@@ -1923,7 +1967,7 @@ public:
             else
                 GatherVertices( vtxX, vtxY, vtxW, inVtx, inTrisPtr, numLanes, vtxLayout );
 
-            TransformVerts( vtxX, vtxY, vtxW, modelToClipMatrix );
+            TransformVerts<ORTHOGRAPHIC>( vtxX, vtxY, vtxW, modelToClipMatrix );
 
             triIndex += SIMD_LANES;
             inTrisPtr += SIMD_LANES * 3;
@@ -1934,7 +1978,7 @@ public:
         //////////////////////////////////////////////////////////////////////////////
 
         if( clipPlaneMask != ClipPlanes::CLIP_PLANE_NONE )
-            ClipTriangleAndAddToBuffer( vtxX, vtxY, vtxW, clipTriBuffer, clipHead, triMask, triClipMask, clipPlaneMask );
+            ClipTriangleAndAddToBuffer<ORTHOGRAPHIC>( vtxX, vtxY, vtxW, clipTriBuffer, clipHead, triMask, triClipMask, clipPlaneMask );
     }
 
 	void RenderTrilist(const TriList &triList, const ScissorRect *scissor) override

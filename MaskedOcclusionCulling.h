@@ -45,7 +45,7 @@
  * balance between performance and low leakage. If QUICK_MASK is defined to 0, use the algorithm from
  * "Masked Depth Culling for Graphics Hardware" which has less leakage, but also lower performance.
  */
-#define QUICK_MASK                      1
+#define QUICK_MASK                      0
 
 #endif
 
@@ -361,7 +361,7 @@ public:
 	 * \return Will return VIEW_CULLED if all triangles are either outside the frustum or
 	 *         backface culled, returns VISIBLE otherwise.
 	 */
-	virtual CullingResult RenderTriangles(const float *inVtx, const unsigned int *inTris, int nTris, const float *modelToClipMatrix = nullptr, BackfaceWinding bfWinding = BACKFACE_CW, ClipPlanes clipPlaneMask = CLIP_PLANE_ALL, const VertexLayout &vtxLayout = VertexLayout(16, 4, 12)) = 0;
+	virtual CullingResult RenderTriangles(const float *inVtx, const unsigned int *inTris, int nTris, const float *modelToClipMatrix = nullptr, BackfaceWinding bfWinding = BACKFACE_CW, ClipPlanes clipPlaneMask = CLIP_PLANE_ALL, const VertexLayout &vtxLayout = VertexLayout(16, 4, 12), const bool orthographic = false) = 0;
 
 	/*!
 	 * \brief Occlusion query for a rectangle with a given depth. The rectangle is given 
@@ -380,7 +380,7 @@ public:
 	 *         if the rectangle is occluded by a previously rendered  object, or VIEW_CULLED
 	 *         if the rectangle is outside the view frustum.
 	 */
-	virtual CullingResult TestRect(float xmin, float ymin, float xmax, float ymax, float wmin) const = 0;
+	virtual CullingResult TestRect(float xmin, float ymin, float xmax, float ymax, float wmin, const bool orthographic = false ) const = 0;
 
 	/*!
 	 * \brief This function is similar to RenderTriangles(), but performs an occlusion
